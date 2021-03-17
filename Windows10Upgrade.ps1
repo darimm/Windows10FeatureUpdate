@@ -7,24 +7,49 @@ Function Write-LogMessage {
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
     [string]$Message,
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string]$LogName,
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string]$EventSource,
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [int]$EventID,
     [switch]$IsError
   )
   if ($IsError.IsPresent) {
-    Write-EventLog -LogName "Application" `
-      -Source "RMMWindows10Upgrade" `
+    Write-EventLog -LogName $LogName `
+      -Source $EventSource `
       -EntryType Error `
-      -EventID 42042 `
-      -Message "$(Get-date -Format 'MM/dd/yyyy HH:mm K') [ERROR] $message"
+      -EventID $EventID `
+      -Message $message
     Write-Verbose "$(Get-date -Format 'MM/dd/yyyy HH:mm K') [ERROR] $message"
   } else {
-    Write-EventLog -LogName "Application" `
-      -Source "RMMWindows10Upgrade" `
+    Write-EventLog -LogName $LogName `
+      -Source $EventSource `
       -EntryType Information `
-      -EventID 42042 `
-      -Message "$(Get-date -Format 'MM/dd/yyyy HH:mm K') [INFO] $message"
+      -EventID $EventID `
+      -Message $message
     Write-Verbose "$(Get-date -Format 'MM/dd/yyyy HH:mm K') [INFO] $message"
   }
 }
+
+Function Write-EVLog {
+  param (
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Message,
+    [switch]$IsError
+  )
+  if ($IsError.IsPresent) {
+    Write-LogMessage -LogName "Application" -Source "RMMWindows10Upgrade" -EventID 42042 -Message $Message -IsError
+  }
+  else {
+    Write-LogMessage -LogName "Application" -Source "RMMWindows10Upgrade" -EventID 42042 -Message $Message
+  }
+}
+
 
 Function New-Windows10EventSource {
   try {
@@ -32,7 +57,7 @@ Function New-Windows10EventSource {
       -Source "RMMWindows10Upgrade" `
       -ErrorAction Stop
   } catch {
-    Write-LogMessage -Message "Summary of Actions - Set Up Windows Event Log Source`r`nEvent Log Source already registered."
+    Write-EVLog -Message "Summary of Actions - Set Up Windows Event Log Source`r`nEvent Log Source already registered."
   }
   Limit-EventLog -LogName "Application" -MaximumSize 1GB
 }
@@ -57,11 +82,11 @@ Function Remove-BuildNotificationRestrictions {
       Remove-Item -Path "$($basePath)$($file)"
       if (Test-Path "$($basePath)$($file)") {
         $returnVal = $false
-        Write-LogMessage -Message "Failed to remove existing Registry Key $($basePath)\$file " -IsError
+        Write-EVLog -Message "Failed to remove existing Registry Key $($basePath)\$file " -IsError
       }
     }
   }
-  Write-LogMessage -Message "Summary of Actions - Removing Build Restrictions`r`n$($logEntry)"
+  Write-EVLog -Message "Summary of Actions - Removing Build Restrictions`r`n$($logEntry)"
   return $returnVal
 }
 
@@ -74,19 +99,19 @@ Function Remove-OldUpgrades {
       $logMessage = $logMessage + "Found $($env:SystemDrive)\$folder... Removing`r`n"
       Remove-Item -Recurse -Path "$($env:SystemDrive)\$folder" -Force
       if (Test-Path -Path "$($env:SystemDrive)\$folder") {
-        Write-LogMessage -Message "Failed to remove existing folder $($env:SystemDrive)\$folder " -IsError
+        Write-EVLog -Message "Failed to remove existing folder $($env:SystemDrive)\$folder " -IsError
         $returnVal = $false
       }
     }
   }
-  Write-LogMessage -Message "Summary of Actions - Removing Old Upgrades`r`n$($logMessage)"
+  Write-EVLog -Message "Summary of Actions - Removing Old Upgrades`r`n$($logMessage)"
   return $returnVal
 }
 
 Function Test-FreeSpace {
   $filter = "DeviceID='$($env:SystemDrive)'"
   If (!((Get-WmiObject Win32_LogicalDisk -Filter $filter | select-object -expand freespace)/1GB -ge 23)) {
-    Write-LogMessage -Message "Insufficient Free Space available to perform Upgrade, 23 GB is required" -IsError
+    Write-EVLog -Message "Insufficient Free Space available to perform Upgrade, 23 GB is required" -IsError
     return $false
   }
   return $true
@@ -98,7 +123,7 @@ Function Test-License {
   if ((cscript "$($env:windir)\system32\\slmgr.vbs" /dli) -match "Licensed") {
     $returnVal = $true
   } else {
-    Write-LogMessage -Message "Windows 10 requires a valid license to upgrade with this tool" -IsError
+    Write-EVLog -Message "Windows 10 requires a valid license to upgrade with this tool" -IsError
   }
   return $returnVal
 }
@@ -119,7 +144,7 @@ Function Get-WindowsUpgradeDiagnosticLog {
     "0x0" { "SUCCESS: Process started."; break }
     default { "WARNING: Unknown exit code."; break }
   }
-  Write-LogMessage "$message (Code: $($exit_code))`r`n$(Get-Content $($dir)\SetupResults.log)" -IsError
+  Write-EVLog "$message (Code: $($exit_code))`r`n$(Get-Content $($dir)\SetupResults.log)" -IsError
 }
 
 Function Get-WindowsUpgradeHardwareCompatibility {
@@ -132,10 +157,10 @@ Function Get-WindowsUpgradeHardwareCompatibility {
       } 
    }
    if ($hw_issues.count -gt 0) {
-      Write-LogMessage [string]::Join(", ",$hw_issues) -IsError
+      Write-EVLog [string]::Join(", ",$hw_issues) -IsError
    }
    else {
-      Write-LogMessage "No hardware compatibility problems."
+      Write-EVLog "No hardware compatibility problems."
    }
 }
 
@@ -144,10 +169,10 @@ Function Get-WindowsUpgradeSoftwareCompatibility {
     Sort-Object LastWriteTime | Select-Object -last 1 | Get-Content
     $incompatible_programs = $compatreport.Compatreport.Programs | ForEach-Object {$_.Program.Name}
     if ($incompatible_programs.count -gt 0) {
-       Write-LogMessage [string]::Join(", ",$incompatible_programs) -IsError
+       Write-EVLog [string]::Join(", ",$incompatible_programs) -IsError
     }
     else {
-       Write-LogMessage "No incompatible programs detected."
+       Write-EVLog "No incompatible programs detected."
     }
 }
 
@@ -183,7 +208,7 @@ Function Remove-TempFiles {
     Get-Childitem -Force -Recurse -ErrorAction SilentlyContinue -path $currentFolder | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
   }
   Stop-Transcript
-  Write-LogMessage -Message "Ran Disk cleanup Script:`r`n$(Get-Content "$($env:windir)\ltsvc\folderscleaned.log")"
+  Write-EVLog -Message "Ran Disk cleanup Script:`r`n$(Get-Content "$($env:windir)\ltsvc\folderscleaned.log")"
 }
 
 Function New-Windows10Install {
@@ -203,10 +228,10 @@ Function New-Windows10Install {
     $logMessage = $logMessage + "Unable to Download file $($file)`r`n"
   }
   if ($logMessage -match "Unable") {
-    Write-LogMessage -Message $logMessage -IsError
+    Write-EVLog -Message $logMessage -IsError
     Exit 1
   }
-  Write-LogMessage -Message "All tests Passed. Beginning Installation."
+  Write-EVLog -Message "All tests Passed. Beginning Installation."
   $install = Start-Process -FilePath $file -ArgumentList "/quietinstall /skipeula /auto upgrade /copylogs $dir /migratedrivers all" -Wait -PassThru
   $hex = "{0:x}" -f $install.ExitCode
   $exit_code = "0x$hex"
@@ -235,11 +260,11 @@ Function New-Windows10Install {
   }
 
   if ($exit_code -eq "0xC1900210" -or $exit_code -eq "0x3" -or $exit_code -eq "0x0") {
-    Write-LogMessage -Message $message
+    Write-EVLog -Message $message
     Start-Sleep -Seconds 300
     Restart-Computer -Force
   } else {
-    Write-LogMessage -Message $message -IsError
+    Write-EVLog -Message $message -IsError
     Start-Sleep -Seconds 300
     Restart-Computer -Force
   }
@@ -267,7 +292,7 @@ if (!($Diagnostics.IsPresent)) {
   #https://4sysops.com/archives/feature-update-for-windows-10-failed-find-blocking-components/ (should add this inf check once this section works)
   Unregister-ScheduledJob -Name "Windows10UpgradeDiagnostic" -Force
   if (!(Test-Path -Path "$($env:SystemDrive)\`$WINDOWS.~BT\Sources\panther")) {
-    Write-LogMessage "No Compatibility information found at $($env:SystemDrive)\`$WINDOWS.~BT\Sources\panther" -IsError
+    Write-EVLog "No Compatibility information found at $($env:SystemDrive)\`$WINDOWS.~BT\Sources\panther" -IsError
   } else {
     Get-WindowsUpgradeHardwareCompatibility
     Get-WindowsUpgradeSoftwareCompatibility
