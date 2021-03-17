@@ -118,14 +118,12 @@ Function Test-FreeSpace {
 }
 
 Function Test-License {
-  #Not a big fan of Doing it this way, but it's a lot easier/faster than the alternatives
-  $returnVal = $false
-  if ((cscript "$($env:windir)\system32\\slmgr.vbs" /dli) -match "Licensed") {
-    $returnVal = $true
-  } else {
-    Write-EVLog -Message "Windows 10 requires a valid license to upgrade with this tool" -IsError
-  }
-  return $returnVal
+  $varLicense = (Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Name like 'Windows%'" | Where-Object PartialProductKey).licensestatus
+  if ($varLicense -eq 1) { 
+    return $true
+  } 
+  Write-EVLog -Message "Windows 10 requires a valid license to upgrade with this tool" -IsError
+  return $false
 }
 
 Function Get-WindowsUpgradeDiagnosticLog {
